@@ -1,0 +1,38 @@
+{
+  "name": "wlf-sync-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "prebuild": "tslint -c tslint.json -p tsconfig.json --fix",
+    "build": "tsc",
+    "prestart": "npm run build",
+    "start": "node .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wlf-io/wlf-sync-server.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/wlf-io/wlf-sync-server/issues"
+  },
+  "homepage": "https://github.com/wlf-io/wlf-sync-server#readme",
+  "dependencies": {
+    "@types/cookie": "^0.3.3",
+    "@types/redis": "^2.8.17",
+    "@types/socket.io": "^2.1.4",
+    "cookie": "^0.4.0",
+    "express": "^4.17.1",
+    "redis": "^3.0.2",
+    "socket.io": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.4",
+    "@types/node": "^13.11.0",
+    "tslint": "^6.1.1",
+    "typescript": "^3.8.3"
+  }
+}
