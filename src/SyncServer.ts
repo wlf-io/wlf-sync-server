@@ -111,7 +111,9 @@ export default class SyncServer {
                                         raw
                                     )
                                 ) || {}
-                            );
+                            )
+                            .onSave(room => this.saveRoom(room))
+                            .onDelete(room => this.deleteRoom(room));
                         res(this.rooms[key]);
                     })
                     .catch(rej);
@@ -119,11 +121,18 @@ export default class SyncServer {
         }
     }
 
-    // private storeToRedis(key: string) {
-    //     if (this.redisClient !== null && this.rooms.hasOwnProperty(key)) {
-    //         this.redisClient.set(key, JSON.stringify(this.rooms[key].getSave()));
-    //     }
-    // }
+    private saveRoom(room: Room) {
+        if (this.redisClient !== null && this.rooms.hasOwnProperty(room.key)) {
+            this.redisClient.set(room.key, JSON.stringify(this.rooms[room.key].getSave()));
+        }
+    }
+
+    private deleteRoom(room: Room) {
+        if (this.rooms.hasOwnProperty(room.key)) {
+            this.saveRoom(this.rooms[room.key]);
+            delete this.rooms[room.key];
+        }
+    }
 
     private fetchFromRedis(key: string): Promise<string | null> {
         console.log("[Start Redis Fetch]");

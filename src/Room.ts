@@ -11,6 +11,8 @@ export default class Room {
     private _identMap: { [k: string]: string } = {};
     private _data: any = {};
     private _oneTimePass: string[] = [];
+    private _onDeleteHooks: Array<(room: Room) => void> = [];
+    private _onSaveHooks: Array<(room: Room) => void> = [];
 
     public static Factory(key: string) {
         return new Room(key);
@@ -19,6 +21,16 @@ export default class Room {
     private constructor(key: string) {
         this._key = key;
         this._access = new AccessControl();
+    }
+
+    public onDelete(cb: (room: Room) => void) {
+        this._onDeleteHooks.push(cb);
+        return this;
+    }
+
+    public onSave(cb: (room: Room) => void) {
+        this._onSaveHooks.push(cb);
+        return this;
     }
 
     get key() {
@@ -85,6 +97,7 @@ export default class Room {
             this.userHooks(user);
             user.sendData(this._data);
             this.sendUsersToUsers();
+            this.save();
             return true;
         }
         user.emit("passwordFailed", this._key);
@@ -93,14 +106,15 @@ export default class Room {
     }
 
     private userHooks(user: User) {
-        user.onSocket("setData", data => this.setData(data, user));
-        user.onSocket("setDataPart", dataPart => this.setDataPart(dataPart, user));
-        user.onSocket("grantUser", userRank => this.grantUser(userRank, user));
-        user.onSocket("setPassword", password => this.setPassword(password, user));
-        user.onSocket("getOneTimePass", () => this.generateOneTimePass(user));
-        user.onSocket("relay", data => this.relay(data, user));
-        user.onUpdate(user => this.userUpdate(user));
-        user.onDisconnect(user => this.userDisconnect(user));
+        user
+            .onSocket("setData", data => this.setData(data, user))
+            .onSocket("setDataPart", dataPart => this.setDataPart(dataPart, user))
+            .onSocket("grantUser", userRank => this.grantUser(userRank, user))
+            .onSocket("setPassword", password => this.setPassword(password, user))
+            .onSocket("getOneTimePass", () => this.generateOneTimePass(user))
+            .onSocket("relay", data => this.relay(data, user))
+            .onUpdate(user => this.userUpdate(user))
+            .onDisconnect(user => this.userDisconnect(user));
     }
 
     private relay(data: any, sender: User) {
@@ -137,6 +151,7 @@ export default class Room {
                             this.access.addRead(userGrant);
                             break;
                     }
+                    this.save();
                 }
             }
         }
@@ -152,12 +167,16 @@ export default class Room {
         delete this._users[user.ident];
         delete this._identMap[user.ident];
         this.sendUsersToUsers();
+        if (Object.values(this._users).length < 1) {
+            this.delete();
+        }
     }
 
     private setData(data: any, user: User) {
         if (this.access.canWrite(user) && this.validateData(data)) {
             this._data = JSON.parse(JSON.stringify(data));
             this.sendDataToUsers();
+            this.save();
         }
     }
 
@@ -170,14 +189,16 @@ export default class Room {
         let { part, data } = dataPart;
         data = JSON.parse(JSON.stringify(data));
         if (this.access.canWrite(user) && typeof part === "string") {
-            this.setDataPath(part, data);
-            this.sendDataPartToUsers(part, data);
+            if (this.setDataPath(part, data)) {
+                this.sendDataPartToUsers(part, data);
+                this.save();
+            }
         }
     }
 
     private setDataPath(_path: string, data: any) {
         const path = _path.split(".");
-        let obj = this._data;
+        let obj = JSON.parse(JSON.stringify(this._data));
         let i: number;
         for (i = 0; i < path.length - 1; i++) {
             const key = path[i];
@@ -191,6 +212,11 @@ export default class Room {
             obj[key] = {};
         }
         obj[key] = data;
+        if (this.validateData(obj)) {
+            this._data = obj;
+            return true;
+        }
+        return false;
     }
 
     private sendDataPartToUsers(part: string, data: any) {
@@ -229,5 +255,13 @@ export default class Room {
 
     get access() {
         return this._access;
+    }
+
+    private save() {
+        this._onSaveHooks.forEach(cb => cb(this));
+    }
+
+    private delete() {
+        this._onDeleteHooks.forEach(cb => cb(this));
     }
 }

@@ -80,16 +80,19 @@ export default class User {
         this.socket.emit(event, { room: this._key, data });
     }
 
-    public onUpdate(cb: (user: User) => void) {
+    public onUpdate(cb: (user: User) => void): User {
         this._updateHooks.push(cb);
+        return this;
     }
 
-    public onDisconnect(cb: (user: User) => void) {
+    public onDisconnect(cb: (user: User) => void): User {
         this._disconnectHooks.push(cb);
+        return this;
     }
 
-    public onSocket(event: string, cb: (data: any) => any) {
+    public onSocket(event: string, cb: (data: any) => any): User {
         this.socket.on(event, evt => cb(evt));
+        return this;
     }
 
     private hookSocket() {
