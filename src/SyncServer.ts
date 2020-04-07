@@ -29,6 +29,7 @@ export default class SyncServer {
     constructor(config: { [k: string]: any }) {
         this.config = JSON.parse(JSON.stringify(config)) || {};
         this.config.redis = this.config.redis || {};
+        this.config.room = this.config.room || {};
         this.app = express();
         this.app.use(cookieParser());
         this.server = createServer(this.app);
@@ -77,7 +78,6 @@ export default class SyncServer {
             const cookies = cookie.parse(socket.handshake.headers.cookie);
             if (cookies.hasOwnProperty(User.NameCookie) && cookies.hasOwnProperty(User.IdentCookie)) {
                 socket.on("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
-                socket.on("debug", () => this.debug(socket));
             } else {
                 socket.disconnect(true);
             }
@@ -104,7 +104,7 @@ export default class SyncServer {
             return new Promise((res, rej) => {
                 this.fetchFromRedis(key)
                     .then(raw => {
-                        this.rooms[key] = Room.Factory(key)
+                        this.rooms[key] = Room.Factory(key, this.config.room || {})
                             .load(
                                 JSON.parse(raw || "null") || {}
                             )
@@ -143,12 +143,12 @@ export default class SyncServer {
         }
     }
 
-    private debug(socket: socketIO.Socket) {
-        const data: { [k: string]: any } = {};
-        for (const key in this.rooms) {
-            data[key] = this.rooms[key].getSave();
-            data[key]["users"] = this.rooms[key].getUsersData();
-        }
-        socket.emit("debug", data);
-    }
+    // private debug(socket: socketIO.Socket) {
+    //     const data: { [k: string]: any } = {};
+    //     for (const key in this.rooms) {
+    //         data[key] = this.rooms[key].getSave();
+    //         data[key]["users"] = this.rooms[key].getUsersData();
+    //     }
+    //     socket.emit("debug", data);
+    // }
 }

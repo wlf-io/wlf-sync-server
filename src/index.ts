@@ -9,6 +9,9 @@ const config = {
         prefix: process.env.REDIS_PREFIX || "wlf-sync",
     },
     indexFile: process.env.INDEX_FILE || "index.html",
+    room: {
+        maxBytes: process.env.ROOM_MAX_BYTES || 5000,
+    },
 };
 
 Server.Factory(config).run();

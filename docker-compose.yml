@@ -24,4 +24,4 @@ services:
         labels:
             - traefik.enable=true
             - traefik.http.services.wlf-sync.loadbalancer.server.port=8080
-            - traefik.http.routers.whoami.rule=Host(`t1.wlf.test`)
+            - traefik.http.routers.whoami.rule=Host(`sync.wlf.test`)

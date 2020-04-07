@@ -14,14 +14,17 @@ export default class Room {
     private _onDeleteHooks: Array<(room: Room) => void> = [];
     private _onSaveHooks: Array<(room: Room) => void> = [];
     private _closeTimeout: NodeJS.Timeout | null = null;
+    private _maxBytes: number = 0;
 
-    public static Factory(key: string) {
-        return new Room(key);
+    public static Factory(key: string, config: null | { [k: string]: any } = null) {
+        return new Room(key, config);
     }
 
-    private constructor(key: string) {
+    private constructor(key: string, config: null | { [k: string]: any } = null) {
         this._key = key;
         this._access = new AccessControl();
+        config = config || {};
+        this._maxBytes = config.maxBytes || this._maxBytes;
     }
 
     public onDelete(cb: (room: Room) => void) {
@@ -121,8 +124,16 @@ export default class Room {
             .onSocket("setPassword", password => this.setPassword(password, user))
             .onSocket("getOneTimePass", () => this.generateOneTimePass(user))
             .onSocket("relay", data => this.relay(data, user))
+            .onSocket("debug", () => this.debug(user))
             .onUpdate(user => this.userUpdate(user))
             .onDisconnect(user => this.userDisconnect(user));
+    }
+
+    private debug(user: User) {
+        if (this.access.canAdmin(user)) {
+            const data = this.getSave();
+            user.emit("debug", { ...data, users: this.getUsersData() });
+        }
     }
 
     private relay(data: any, sender: User) {
@@ -200,7 +211,8 @@ export default class Room {
 
     private validateData(data: any) {
         // TODO : validate data via schema;
-        return typeof data === "object" && data !== null;
+        const bytes = (new TextEncoder().encode(JSON.stringify(JSON.stringify(data)))).length;
+        return typeof data === "object" && data !== null && (bytes <= this._maxBytes || this._maxBytes < 1);
     }
 
     private setDataPart(dataPart: { part: string, data: any }, user: User) {
