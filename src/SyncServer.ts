@@ -12,7 +12,7 @@ import cookieParser from "cookie-parser";
 import Room from "./Room";
 
 export default class SyncServer {
-
+    //
     // private users: { [k: string]: User } = {};
     private rooms: { [k: string]: Room } = {};
     private config: { [k: string]: any };
@@ -61,8 +61,10 @@ export default class SyncServer {
     private listen() {
         this.app.use("/", express.static(path.join(__dirname, 'public')));
         this.app.get("/*", (req, res) => {
-            res.cookie(User.IdentCookie, req.cookies[User.IdentCookie] || uuidv4());
-            res.cookie(User.NameCookie, req.cookies[User.NameCookie] || User.UniqueName());
+            const today = new Date();
+            const expires = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());;
+            res.cookie(User.IdentCookie, req.cookies[User.IdentCookie] || uuidv4(), { expires });
+            res.cookie(User.NameCookie, req.cookies[User.NameCookie] || User.UniqueName(), { expires });
             res.sendFile(__dirname + "/public/" + (this.config.index_file || "index.html"));
         });
         const port = this.config.port || 8080;
@@ -72,9 +74,8 @@ export default class SyncServer {
         });
         this.socket.on('connection', (socket: socketIO.Socket) => {
             const cookies = cookie.parse(socket.handshake.headers.cookie);
-            console.log(cookies);
             if (cookies.hasOwnProperty(User.NameCookie) && cookies.hasOwnProperty(User.IdentCookie)) {
-                socket.on("joinRoom", (keyPass: any) => this.joinRoom(socket, keyPass));
+                socket.on("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
                 socket.on("debug", () => this.debug(socket));
             } else {
                 socket.disconnect();
@@ -82,13 +83,17 @@ export default class SyncServer {
         });
     }
 
-    private joinRoom(socket: socketIO.Socket, keyPass: { key: string, pass: string }) {
-        let { key, pass } = keyPass;
-        key = key.toLowerCase().replace(/[^0-9a-z]/gi, '');
-        this.getRoomByKey(key)
-            .then(room => {
-                room.join(socket, pass);
-            });
+    private joinRoom(socket: socketIO.Socket, roomPass: { room: string, pass: string }) {
+        let { room: key, pass } = roomPass;
+        if (typeof key === "string" && key.length > 0) {
+            key = key.toLowerCase().replace(/[^0-9a-z]/gi, '');
+            this.getRoomByKey(key)
+                .then(room => {
+                    if (!room.join(socket, pass)) {
+                        socket.disconnect();
+                    }
+                });
+        }
     }
 
     private getRoomByKey(key: string): Promise<Room> {

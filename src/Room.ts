@@ -19,16 +19,21 @@ export default class Room {
     private constructor(key: string) {
         this._key = key;
         this._access = new AccessControl();
-        this._password = "CAKE";
     }
 
     get key() {
         return this._key;
     }
 
+    public setPassword(password: string | null, user: User) {
+        if (this.access.canAdmin(user)) {
+            this._password = JSON.parse(JSON.stringify(password));
+        }
+    }
+
     public load(data: { [k: string]: any }) {
         console.log(`[${this._key}][Loding...]:` + JSON.stringify(data));
-        this._password = data.password || "CAKE";
+        this._password = data.password || null;
         this._access = new AccessControl(data.access || {});
         this._identMap = data.identMap || {};
         this._data = data.data || {};
@@ -82,6 +87,7 @@ export default class Room {
             this.sendUsersToUsers();
             return true;
         }
+        user.emit("passwordFailed", this._key);
         console.log(`[${this._key}][User Rejected] : ${user.name} - ${password}`);
         return false;
     }
@@ -90,9 +96,16 @@ export default class Room {
         user.onSocket("setData", data => this.setData(data, user));
         user.onSocket("setDataPart", dataPart => this.setDataPart(dataPart, user));
         user.onSocket("grantUser", userRank => this.grantUser(userRank, user));
+        user.onSocket("setPassword", password => this.setPassword(password, user));
         user.onSocket("getOneTimePass", () => this.generateOneTimePass(user));
+        user.onSocket("relay", data => this.relay(data, user));
         user.onUpdate(user => this.userUpdate(user));
         user.onDisconnect(user => this.userDisconnect(user));
+    }
+
+    private relay(data: any, sender: User) {
+        Object.values(this._users)
+            .forEach(user => user.relay(this._identMap[sender.ident], data));
     }
 
     private generateOneTimePass(user: User) {
@@ -135,6 +148,7 @@ export default class Room {
     }
 
     private userDisconnect(user: User) {
+        console.log(`[${this._key}][User Left] : ${user.name}`);
         delete this._users[user.ident];
         delete this._identMap[user.ident];
         this.sendUsersToUsers();

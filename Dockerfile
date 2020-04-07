@@ -1,4 +1,4 @@
-FROM node:13.12.0-alpine3.11
+FROM node:13.12.0-alpine3.11 as BUILD
 
 COPY ./src /app/src
 COPY ./tsconfig.json /app/tsconfig.json
@@ -12,3 +12,20 @@ RUN npm ci
 RUN npm run build
 
 RUN ls /app/dist
+
+RUN rm -rf /app/src
+
+RUN rm -rf /app/node_modules
+
+##
+##
+##
+
+
+FROM node:13.12.0-alpine3.11
+
+COPY --from=BUILD /app /app
+
+WORKDIR /app
+
+RUN npm install --only=prod

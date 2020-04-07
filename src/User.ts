@@ -72,6 +72,10 @@ export default class User {
         this.emit("yourUser", u);
     }
 
+    public relay(sender: string, data: any) {
+        this.emit("relay", { sender, data });
+    }
+
     public emit(event: string, data: any) {
         this.socket.emit(event, { room: this._key, data });
     }

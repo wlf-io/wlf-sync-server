@@ -8,7 +8,8 @@
     "build": "tsc",
     "prestart": "npm run build",
     "start": "node . --enable-source-map",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dockerBuild": "docker build . --tag build_result"
   },
   "repository": {
     "type": "git",

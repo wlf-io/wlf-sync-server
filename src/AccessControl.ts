@@ -83,7 +83,6 @@ export default class AccessControl {
     }
 
     public canAdmin(user: User): boolean {
-        console.log(`[ADMIN CHECK]: (${user.ident}) =/= (${this._owner})`)
         return this.isOwner(user) || this.admin.includes(user.ident);
     }
 

@@ -1,0 +1,252 @@
+<html>
+
+<head>
+    <title>Socket test</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script>
+        Object.getByPath = function (o, s) {
+            s = s.replace(/\[(\w+)\]/g, '.$1'); // convert indexes to properties
+            s = s.replace(/^\./, '');           // strip a leading dot
+            var a = s.split('.');
+            for (var i = 0, n = a.length; i < n; ++i) {
+                var k = a[i];
+                if (k in o) {
+                    o = o[k];
+                } else {
+                    return;
+                }
+            }
+            return o;
+        }
+
+        Object.setByPath = function (o, s, v) {
+            s = s.replace(/\[(\w+)\]/g, '.$1'); // convert indexes to properties
+            s = s.replace(/^\./, '');           // strip a leading dot
+            var a = s.split('.');
+            for (var i = 0, n = a.length - 1; i < n; ++i) {
+                var k = a[i];
+                if (!(k in o)) {
+                    o[k] = {};
+                }
+                o = o[k];
+            }
+            return o[a[i]] = v;
+        }
+    </script>
+    <script>
+        const users = {};
+        let sock = null;
+        let syncData = {};
+
+        const updateData = (key, val) => {
+            const data = JSON.parse(JSON.stringify(syncData));
+            Object.setByPath(data, key, val);
+            setData(data);
+        };
+
+        const dataUpdate = () => {
+            $(".dataUpdate").each((i, elem) => {
+                elem = $(elem);
+                const key = elem.data("key");
+                const val = Object.getByPath(syncData, key);
+                elem = elem;
+                if (elem.is("input") || elem.is("textbox") || elem.is("select")) {
+                    if (elem.is("[type=checkbox]")) {
+                        elem.prop("checked", val);
+                    } else {
+                        elem.val(val);
+                    }
+                } else {
+                    const set = elem.data("set");
+                    switch (set.toLowerCase()) {
+                        case "html":
+                            elem.html(val);
+                            break;
+                        case "text":
+                            elem.text(val);
+                            break;
+                        default:
+                            elem.attr(set, val);
+                            break;
+                    }
+                }
+            });
+        }
+
+        const setData = (data) => {
+            sock.emit("setData", data);
+        };
+        const debug = () => {
+            sock.emit("debug", true);
+        };
+
+        const setName = () => {
+            sock.emit("updateUser", { name: prompt("New Name?") });
+        }
+
+        const chatSend = (event, form) => {
+            if (form instanceof HTMLFormElement) {
+                const input = form.querySelector("input[type='text']");
+                if (input instanceof HTMLInputElement) {
+                    if (input.value.length > 0) {
+                        relayOut("chat", input.value);
+                    }
+                    input.value = "";
+                }
+            }
+        }
+
+        const relayOut = (type, data) => {
+            sock.emit("relay", { type, data });
+        }
+
+        const chatIn = (senderID, text) => {
+            const sender = users[senderID] || {};
+            const name = sender.name || senderID;
+            appendLog("[" + name + "]: " + text);
+        };
+
+        const relayIn = (sender, raw) => {
+            console.log("Relay In", sender, raw);
+            const { type, data } = raw;
+            switch (type.toLowerCase()) {
+                case "chat":
+                    chatIn(sender, data);
+                    break;
+                default:
+                    console.log("[Relay In][" + type + "]: ", data);
+                    break;
+            }
+        }
+
+        const appendLog = (text) => {
+            $("pre").append("\n" + text);
+        }
+
+        const joinRoom = (room, pass) => {
+            sock.emit("joinRoom", { room, pass });
+        }
+
+        const removeHash = () => {
+            history.replaceState("", document.title, window.location.pathname
+                + window.location.search);
+        }
+
+        const passwordPrompt = () => {
+            location.hash = prompt("Password");
+            reconnect();
+        }
+
+        const reconnect = () => {
+            disconnect();
+            connect();
+        }
+
+        const disconnect = () => {
+            if (sock === null) {
+                return;
+            }
+            sock.disconnect();
+            sock = null;
+        }
+
+        const connect = () => {
+            if (sock !== null) {
+                return;
+            }
+            sock = io();
+
+            sock.on("connect", () => joinRoom(location.pathname, location.hash.substr(1)));
+
+            sock.on("debug", (evt) => console.log("DEBUG", evt));
+
+            sock.on("disconnect", evt => {
+                console.log("CLOSE", evt);
+                sock = null;
+            });
+
+            sock.on("setData", (evt) => {
+                removeHash();
+                syncData = evt.data;
+                dataUpdate();
+            });
+
+            sock.on("yourUser", evt => {
+                console.log("Your User", evt);
+            });
+
+            sock.on("relay", evt => {
+                console.log("RELAY RECIEVE", evt);
+                const { room, data: raw } = evt;
+                const { sender, data } = raw;
+                relayIn(sender, data);
+            });
+
+            sock.on("passwordFailed", evt => {
+                console.log("PASS FAIL", evt);
+                window.setTimeout(passwordPrompt, 500);
+            });
+
+            sock.on("setUsers", (evt) => {
+                const newUsers = evt.data;
+                console.log("Set Users", evt);
+                Object.keys(newUsers).forEach(userKey => {
+                    const newUser = newUsers[userKey];
+                    if (users.hasOwnProperty(userKey)) {
+                        const oldUser = users[userKey];
+                        if (oldUser.name !== newUser.name) {
+                            $("pre").append("\n" + oldUser.name + " renamed to " + newUser.name + ".");
+                        }
+                    } else {
+                        $("pre").append("\n" + newUser.name + " joined!");
+                    }
+                    users[userKey] = newUser;
+                });
+
+                Object.keys(users).forEach(userKey => {
+                    const oldUser = users[userKey];
+                    if (!newUsers.hasOwnProperty(userKey)) {
+                        $("pre").append("\n" + oldUser.name + " left!");
+                        delete users[userKey];
+                    }
+                })
+            });
+
+        };
+
+        const loaded = () => {
+            if (location.pathname.length < 2) {
+                window.location = "/" + prompt("Enter Room Name");
+                return;
+            }
+
+            connect();
+
+            $("input.dataUpdate[type=text],textarea.dataUpdate").on("blur", (evt) => {
+                const elem = $(evt.currentTarget);
+                updateData(elem.data("key"), elem.val());
+            });
+
+            $("input.dataUpdate:not([type=text])").on("input", (evt) => {
+                const elem = $(evt.currentTarget);
+                updateData(elem.data("key"), elem.is("input[type=checkbox]") ? elem.prop("checked") : elem.val());
+            });
+        }
+        $(document).ready(loaded);
+    </script>
+</head>
+
+<body>
+    <form onsubmit="chatSend(event,this);return false;"><input type="text"><input type="submit"></form>
+    <hr>
+    <label>text </label><input class="dataUpdate" data-key="text" type="text">
+    <br>
+    <label>check</label><input class="dataUpdate" data-key="check" type="checkbox">
+    <hr>
+    <pre>RAA</pre>
+    <!--iframe width="560" height="315" src="https://www.youtube.com/embed/H447gvtABIM" frameborder="0"
+        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe-->
+</body>
+
+</html>
