@@ -479,12 +479,12 @@
         }
 
         const getDesiredState = () => {
-            const vid = syncData.video;
+            const vid = syncData.video || {};
             return vid.state || "paused";
         }
 
         const getDesiredTime = () => {
-            const vid = syncData.video;
+            const vid = syncData.video || {};
             const actualTime = player.getCurrentTime();
             const time = vid.time || (actualTime * 1000);
             return (getDesiredState() === "playing" ? (Date.now() - vid.time) : vid.time) / 1000;
