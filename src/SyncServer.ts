@@ -1,33 +1,38 @@
 import { createServer, Server } from "http";
+import { promisify } from "util";
 import path from "path";
 import socketIO from "socket.io";
 import express from "express";
-// import cookie from "cookie";
+import cookie from "cookie";
 import User from "./User";
 import redis from "redis";
+//import Data from "./Data";
+import { v4 as uuidv4 } from "uuid";
+import cookieParser from "cookie-parser";
+import Room from "./Room";
 
 export default class SyncServer {
 
-    private users: { [k: string]: User } = {};
-    private data: { [k: string]: any } = {};
+    // private users: { [k: string]: User } = {};
+    private rooms: { [k: string]: Room } = {};
     private config: { [k: string]: any };
 
-    private readonly port: number;
     private app: express.Application;
     private server: Server;
     private socket: SocketIO.Server;
-    private redisClient: redis.RedisClient;
+    private redisClient: redis.RedisClient | null = null;
 
     public static Factory(config: { [k: string]: any }) {
         return new SyncServer(config);
     }
 
     constructor(config: { [k: string]: any }) {
-        this.config = JSON.parse(JSON.stringify(config));
+        this.config = JSON.parse(JSON.stringify(config)) || {};
         this.config.redis = this.config.redis || {};
-        this.createApp();
-        this.createServer();
-        this.createSocket();
+        this.app = express();
+        this.app.use(cookieParser());
+        this.server = createServer(this.app);
+        this.socket = socketIO(this.server);//, { path: "/ws" });
         this.createRedis();
     }
 
@@ -35,82 +40,103 @@ export default class SyncServer {
         this.listen();
     }
 
-    private createApp() {
-        this.app = express();
-    }
-
-    private createServer() {
-        this.server = createServer(this.app);
-    }
-
-    private createSocket() {
-        this.socket = socketIO(this.server);// , { path: "/ws" });
-    }
-
     private createRedis() {
-        this.redisClient = redis.createClient({
-            host: this.config.redis.host || "127.0.0.120",
-            port: this.config.redis.port || 6379,
-            prefix: this.config.redis.prefix || "wlf-sync",
-        });
-        // setInterval(() => {
-        //     this.redisClient.get("CAKECAKE", (err, rep) => {
-        //         console.log("[Redis Reply]:", JSON.parse(rep));
-        //     });
-        // }, 5000);
+        try {
+            this.redisClient = redis.createClient({
+                host: this.config.redis.host || "127.0.0.120",
+                port: this.config.redis.port || 6379,
+                prefix: this.config.redis.prefix || "wlf-sync",
+            });
+            this.redisClient.on("error", (err) => {
+                console.log("[Redis ERROR]: " + err.code);
+                this.redisClient?.end();
+                this.redisClient = null;
+                setTimeout(() => this.createRedis(), 5000);
+            });
+        } catch (e) {
+            this.redisClient = null;
+        }
     }
 
     private listen() {
         this.app.use("/", express.static(path.join(__dirname, 'public')));
+        this.app.get("/*", (req, res) => {
+            res.cookie(User.IdentCookie, req.cookies[User.IdentCookie] || uuidv4());
+            res.cookie(User.NameCookie, req.cookies[User.NameCookie] || User.UniqueName());
+            res.sendFile(__dirname + "/public/" + (this.config.index_file || "index.html"));
+        });
         const port = this.config.port || 8080;
         this.server.listen(port, () => {
             console.log("Server started!!");
             console.log(`http://localhost:${port}`);
         });
         this.socket.on('connection', (socket: socketIO.Socket) => {
-            console.log(`Client connected on port [${port}] ${socket.id}`);
-            // const cookies = cookie.parse(socket.handshake.headers.cookie);
-            // console.log(JSON.stringify(cookies));
-
-            const user = User.Factory(socket);
-
-            this.users[socket.id] = user;
-
-            socket.on("setKey", (key: any) => {
-                console.log("[Client SET KEY]: " + JSON.stringify(key));
-                user.key = key;
-                if (this.data.hasOwnProperty(key)) {
-                    user.setData(this.data[key]);
-                } else {
-                    this.data[key] = null;
-                    this.redisClient.get(key, (err, resp) => {
-                        if (err === null) {
-                            this.data[key] = JSON.parse(resp);
-                            this.sendToUsers("", key);
-                        } else {
-                            console.log("REDIS ERR: ", err);
-                        }
-                    });
-                }
-            });
-
-            socket.on("setData", (m: any) => {
-                console.log("[Client SET DATA]: " + JSON.stringify(m));
-                this.data[user.key] = m;
-                this.sendToUsers(socket.id, user.key);
-                this.redisClient.set(user.key, JSON.stringify(m));
-            });
-
-            socket.on("disconnect", () => {
-                console.log("Client disconnected");
-                delete this.users[socket.id];
-            });
+            const cookies = cookie.parse(socket.handshake.headers.cookie);
+            console.log(cookies);
+            if (cookies.hasOwnProperty(User.NameCookie) && cookies.hasOwnProperty(User.IdentCookie)) {
+                socket.on("joinRoom", (keyPass: any) => this.joinRoom(socket, keyPass));
+                socket.on("debug", () => this.debug(socket));
+            } else {
+                socket.disconnect();
+            }
         });
     }
 
-    private sendToUsers(src: string, key: string) {
-        Object.values(this.users)
-            .filter(user => user.key === key && user.socket.id !== src)
-            .forEach(user => user.setData(this.data[key] || null));
+    private joinRoom(socket: socketIO.Socket, keyPass: { key: string, pass: string }) {
+        let { key, pass } = keyPass;
+        key = key.toLowerCase().replace(/[^0-9a-z]/gi, '');
+        this.getRoomByKey(key)
+            .then(room => {
+                room.join(socket, pass);
+            });
+    }
+
+    private getRoomByKey(key: string): Promise<Room> {
+        if (this.rooms.hasOwnProperty(key)) {
+            return Promise.resolve(this.rooms[key]);
+        } else {
+            return new Promise((res, rej) => {
+                this.fetchFromRedis(key)
+                    .then(raw => {
+                        this.rooms[key] = Room.Factory(key)
+                            .load(
+                                JSON.parse(
+                                    JSON.stringify(
+                                        raw
+                                    )
+                                ) || {}
+                            );
+                        res(this.rooms[key]);
+                    })
+                    .catch(rej);
+            });
+        }
+    }
+
+    // private storeToRedis(key: string) {
+    //     if (this.redisClient !== null && this.rooms.hasOwnProperty(key)) {
+    //         this.redisClient.set(key, JSON.stringify(this.rooms[key].getSave()));
+    //     }
+    // }
+
+    private fetchFromRedis(key: string): Promise<string | null> {
+        console.log("[Start Redis Fetch]");
+        if (this.redisClient !== null) {
+            console.log("[Client Exists]");
+            const getA = promisify(this.redisClient.get).bind(this.redisClient);
+            return getA(key);
+        } else {
+            console.log("[Client doesn't exist]");
+            return Promise.reject();
+        }
+    }
+
+    private debug(socket: socketIO.Socket) {
+        const data: { [k: string]: any } = {};
+        for (const key in this.rooms) {
+            data[key] = this.rooms[key].getSave();
+            data[key]["users"] = this.rooms[key].getUsersData();
+        }
+        socket.emit("debug", data);
     }
 }

@@ -2,7 +2,6 @@
     "compilerOptions": {
         "module": "commonjs",
         "esModuleInterop": true,
-        "target": "es6",
         "noImplicitAny": true,
         "moduleResolution": "node",
         "sourceMap": true,
@@ -12,7 +11,13 @@
             "*": [
                 "node_modules/*"
             ]
-        }
+        },
+        "removeComments": true,
+        "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "incremental": true,
+        "target": "ES2018"
     },
     "include": [
         "src/**/*"
