@@ -79,7 +79,7 @@ export default class SyncServer {
                 socket.on("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
                 socket.on("debug", () => this.debug(socket));
             } else {
-                socket.disconnect();
+                socket.disconnect(true);
             }
         });
     }
@@ -91,7 +91,7 @@ export default class SyncServer {
             this.getRoomByKey(key)
                 .then(room => {
                     if (!room.join(socket, pass)) {
-                        socket.disconnect();
+                        socket.disconnect(true);
                     }
                 });
         }
@@ -106,11 +106,7 @@ export default class SyncServer {
                     .then(raw => {
                         this.rooms[key] = Room.Factory(key)
                             .load(
-                                JSON.parse(
-                                    JSON.stringify(
-                                        raw
-                                    )
-                                ) || {}
+                                JSON.parse(raw || "null") || {}
                             )
                             .onSave(room => this.saveRoom(room))
                             .onDelete(room => this.deleteRoom(room));
@@ -129,6 +125,7 @@ export default class SyncServer {
 
     private deleteRoom(room: Room) {
         if (this.rooms.hasOwnProperty(room.key)) {
+            console.log(`[Server]: Closing room ${room.key}`);
             this.saveRoom(this.rooms[room.key]);
             delete this.rooms[room.key];
         }

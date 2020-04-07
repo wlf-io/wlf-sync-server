@@ -13,6 +13,7 @@ export default class Room {
     private _oneTimePass: string[] = [];
     private _onDeleteHooks: Array<(room: Room) => void> = [];
     private _onSaveHooks: Array<(room: Room) => void> = [];
+    private _closeTimeout: NodeJS.Timeout | null = null;
 
     public static Factory(key: string) {
         return new Room(key);
@@ -44,7 +45,7 @@ export default class Room {
     }
 
     public load(data: { [k: string]: any }) {
-        console.log(`[${this._key}][Loding...]:` + JSON.stringify(data));
+        console.log(`[${this._key}][Loding...]:`, data);
         this._password = data.password || null;
         this._access = new AccessControl(data.access || {});
         this._identMap = data.identMap || {};
@@ -87,6 +88,7 @@ export default class Room {
     public join(socket: SocketIO.Socket, password: string) {
         const user = new User(socket, this.key);
         this.access.attemptClaim(user.ident);
+        this.removeOldUser(user);
         if (this.joinCheck(user, password)) {
             console.log(`[${this._key}][User Joined] : ${user.name}`);
             this._users[user.ident] = user;
@@ -103,6 +105,12 @@ export default class Room {
         user.emit("passwordFailed", this._key);
         console.log(`[${this._key}][User Rejected] : ${user.name} - ${password}`);
         return false;
+    }
+
+    private removeOldUser(user: User) {
+        if (this._users.hasOwnProperty(user.ident)) {
+            this._users[user.ident].disconnect();
+        }
     }
 
     private userHooks(user: User) {
@@ -130,8 +138,9 @@ export default class Room {
         }
     }
 
-    private grantUser(userRank: { maskedIdent: string, rank: string }, user: User) {
-        const { maskedIdent, rank } = userRank;
+    private grantUser(userRank: { ident: string, rank: string }, user: User) {
+        console.log(`[${this.key}][Grant User]: ${user.name} wants to give ` + JSON.stringify(userRank));
+        const { ident: maskedIdent, rank } = userRank;
         const ident = this._identMap[maskedIdent] || null;
         if (this.access.canAdmin(user) && ident !== null) {
             const userGrant = this._users[ident];
@@ -167,9 +176,16 @@ export default class Room {
         delete this._users[user.ident];
         delete this._identMap[user.ident];
         this.sendUsersToUsers();
-        if (Object.values(this._users).length < 1) {
-            this.delete();
+        if (this._closeTimeout !== null) {
+            clearTimeout(this._closeTimeout);
+            this._closeTimeout = null;
         }
+        this._closeTimeout = setTimeout(() => {
+            this._closeTimeout = null;
+            if (Object.values(this._users).length < 1) {
+                this.delete();
+            }
+        }, 10000);
     }
 
     private setData(data: any, user: User) {
@@ -177,7 +193,9 @@ export default class Room {
             this._data = JSON.parse(JSON.stringify(data));
             this.sendDataToUsers();
             this.save();
+            return;
         }
+        user.sendData(this._data);
     }
 
     private validateData(data: any) {
@@ -192,8 +210,10 @@ export default class Room {
             if (this.setDataPath(part, data)) {
                 this.sendDataPartToUsers(part, data);
                 this.save();
+                return;
             }
         }
+        user.sendData(this._data);
     }
 
     private setDataPath(_path: string, data: any) {

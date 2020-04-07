@@ -112,7 +112,10 @@ export default class User {
         }
     }
 
-    private disconnect() {
+    public disconnect() {
+        if (this.socket.connected) {
+            this.socket.disconnect(true);
+        }
         this._disconnectHooks.forEach(hook => hook(this));
     }
 }

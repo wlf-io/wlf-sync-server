@@ -2,8 +2,74 @@
 
 <head>
     <title>Socket test</title>
+    <script src="https://www.youtube.com/iframe_api"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.js"></script>
+    <style>
+        div#logContainer {
+            height: 400px;
+        }
+
+        div#logContainer>form {
+            margin-top: 2px;
+        }
+
+        div#logContainer>form>input[type=text] {
+            width: calc((100vw - 32px) - 205px - 101px);
+        }
+
+        div#logContainer>form>input[type=submit] {
+            width: 100px;
+        }
+
+        div#log {
+            height: calc(400px - 30px);
+            overflow-y: scroll;
+            border: 1px solid #1e1e1e;
+            margin-left: 200px;
+        }
+
+        h4 {
+            margin-top: 2px;
+            margin-bottom: 10px;
+        }
+
+        div#userListContainer {
+            float: left;
+            width: 205px;
+        }
+
+        #userList {
+            margin-top: 2px;
+            width: 200px;
+            height: calc(400px - 30px);
+        }
+
+        div#log>span {
+            display: block;
+        }
+
+        .userLink {
+            color: #5e5e5e;
+            cursor: pointer;
+        }
+
+        .userLink.rankAdmin {
+            color: red;
+        }
+
+        .userLink.rankOwner {
+            color: gold;
+        }
+
+        iframe {
+            margin-left: 150px;
+            width: calc(100vw - 332px);
+            height: calc((100vw - 332px) * (315 / 560));
+        }
+    </style>
+    <style class="dataUpdate" data-key="css" data-set="text"></style>
     <script>
         Object.getByPath = function (o, s) {
             s = s.replace(/\[(\w+)\]/g, '.$1'); // convert indexes to properties
@@ -35,12 +101,12 @@
         }
     </script>
     <script>
-        const users = {};
+        let users = {};
         let sock = null;
-        let syncData = {};
+        let syncData = null;
 
         const updateData = (key, val) => {
-            const data = JSON.parse(JSON.stringify(syncData));
+            const data = JSON.parse(JSON.stringify(syncData)) || {};
             Object.setByPath(data, key, val);
             setData(data);
         };
@@ -49,7 +115,7 @@
             $(".dataUpdate").each((i, elem) => {
                 elem = $(elem);
                 const key = elem.data("key");
-                const val = Object.getByPath(syncData, key);
+                const val = Object.getByPath(syncData || {}, key);
                 elem = elem;
                 if (elem.is("input") || elem.is("textbox") || elem.is("select")) {
                     if (elem.is("[type=checkbox]")) {
@@ -58,12 +124,13 @@
                         elem.val(val);
                     }
                 } else {
-                    const set = elem.data("set");
+                    const set = elem.data("set") || "";
                     switch (set.toLowerCase()) {
                         case "html":
                             elem.html(val);
                             break;
                         case "text":
+                        case "":
                             elem.text(val);
                             break;
                         default:
@@ -81,19 +148,50 @@
             sock.emit("debug", true);
         };
 
-        const setName = () => {
-            sock.emit("updateUser", { name: prompt("New Name?") });
+        const setName = (name) => {
+            name = name || prompt("New Name?");
+            sock.emit("updateUser", { name });
+            Cookies.set("wlf_sync_name", name, { expires: 365 });
         }
 
-        const chatSend = (event, form) => {
-            if (form instanceof HTMLFormElement) {
-                const input = form.querySelector("input[type='text']");
-                if (input instanceof HTMLInputElement) {
-                    if (input.value.length > 0) {
-                        relayOut("chat", input.value);
+        const setVideo = (event, form) => {
+            const input = $(form).find("input[type=text]");
+            if (input.length === 1) {
+                if (input.val().length > 0) {
+                    const data = JSON.parse(JSON.stringify(syncData)) || {};
+                    if (!data.hasOwnProperty("video")) {
+                        data.video = {};
                     }
-                    input.value = "";
+                    data.video.state = "playing";
+                    data.video.time = Date.now();
+                    data.video.url = getVideoIdFromURL(input.val());
+                    setData(data);
                 }
+                input.val("");
+            }
+        }
+
+        const getVideoIdFromURL = (_url) => {
+            const url = new URL(_url);
+            let id = url.searchParams.get("v");
+            if (url.host.endsWith("youtu.be")) {
+                return url.pathname.split("/").filter(p => p.length).shift();
+            } else {
+                if (id) {
+                    return id;
+                } else {
+                    console.log("NOT DONE YET");
+                }
+            }
+        };
+
+        const chatSend = (event, form) => {
+            const input = $(form).find("input[type=text]");
+            if (input.length === 1) {
+                if (input.val().length > 0) {
+                    relayOut("chat", input.val());
+                }
+                input.val("");
             }
         }
 
@@ -102,9 +200,7 @@
         }
 
         const chatIn = (senderID, text) => {
-            const sender = users[senderID] || {};
-            const name = sender.name || senderID;
-            appendLog("[" + name + "]: " + text);
+            appendLog(": " + text, senderID);
         };
 
         const relayIn = (sender, raw) => {
@@ -120,9 +216,43 @@
             }
         }
 
-        const appendLog = (text) => {
-            $("pre").append("\n" + text);
+        const setPassword = (password) => {
+            sock.emit("setPassword", password);
         }
+
+        const grantUser = (ident, rank) => {
+            sock.emit("grantUser", { ident, rank });
+        }
+
+        const appendLog = (text, ident) => {
+            const user = users[ident] || null;
+            let content = "";
+            if (user !== null) {
+                content = [
+                    document.createTextNode("["),
+                    $("<span>")
+                        .attr({ "data-ident": ident })
+                        .addClass("userLink")
+                        .addClass(user.admin ? "rankAdmin" : "")
+                        .addClass(user.owner ? "rankOwner" : "")
+                        .text(user.name),
+                    document.createTextNode("]"),
+                    document.createTextNode(text)
+                ];
+            } else {
+                content = document.createTextNode(text);
+            }
+            $("#log").append($("<span>").append(content));
+        }
+
+        const userUpdate = () => {
+            $("#userList").empty();
+            Object.values(users).forEach(user => {
+                $("#userList").append(
+                    $("<option>").val(user.ident).text(user.name)
+                );
+            });
+        };
 
         const joinRoom = (room, pass) => {
             sock.emit("joinRoom", { room, pass });
@@ -139,16 +269,70 @@
         }
 
         const reconnect = () => {
-            disconnect();
-            connect();
+            location.reload();
         }
 
         const disconnect = () => {
             if (sock === null) {
                 return;
             }
-            sock.disconnect();
+            sock.disconnect(true);
             sock = null;
+        }
+
+        const videoChange = (newVid, oldVid) => {
+            if (!playerReady) {
+                return;
+            }
+            // console.log(Object.keys(player));
+            const newUrl = newVid.url || null;
+
+            const oldUrl = oldVid.url || null;
+
+            if (oldUrl !== newUrl) {
+                console.log("LOAD URL");
+                try {
+                    player.loadVideoById(newUrl, (Date.now() - (newVid.time || Date.now())) / 1000);
+                    stateCooldown = Date.now() + 1000;
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        };
+
+        let stateCooldown = 0;
+
+        const videoStateCheck = () => {
+            const rawState = player.getPlayerState();
+            const actualState = YTState2String(rawState);
+            const desiredState = getDesiredState();
+
+            if (desiredState !== actualState && Date.now() > stateCooldown) {
+                switch (desiredState) {
+                    case "playing":
+                        player.playVideo();
+                        break;
+                    case "paused":
+                        player.pauseVideo();
+                        break;
+                }
+                stateCooldown = Date.now() + 1000;
+                console.log("Sync State", actualState, desiredState);
+                if (!timeWithinTolerance()) {
+                    player.seekTo(getDesiredTime() + (desiredState === "playing" ? 1.5 : 0), true);
+                    return;
+                }
+                return;
+            }
+
+
+            if (!timeWithinTolerance()) {
+                stateCooldown = Date.now() + 1000;
+                player.seekTo(getDesiredTime() + (desiredState === "playing" ? 1.5 : 0), true);
+                return;
+            }
+
+
         }
 
         const connect = () => {
@@ -163,13 +347,36 @@
 
             sock.on("disconnect", evt => {
                 console.log("CLOSE", evt);
+                appendLog("[Disconnected]");
                 sock = null;
+                users = {};
+                syncData = null;
+                dataUpdate();
             });
 
             sock.on("setData", (evt) => {
+                //console.log("Set Data", evt);
                 removeHash();
-                syncData = evt.data;
+                let first = false;
+                if (syncData === null) {
+                    first = true;
+                }
+                const data = JSON.parse(JSON.stringify(evt.data)) || {};
+                const oldData = JSON.parse(JSON.stringify(syncData)) || {};
+                videoChange(data.video || {}, oldData.video || {});
+                syncData = data;
+                if (first) {
+                    if (syncData === null || Object.keys(syncData).length < 1) {
+                        const store = JSON.parse(localStorage.getItem("wlf_sync_data_" + evt.room)) || {};
+                        if (Object.keys(store).length > 0) {
+                            console.log("RESTORE DATA", store);
+                            setData(store);
+                            return;
+                        }
+                    }
+                }
                 dataUpdate();
+                localStorage.setItem("wlf_sync_data_" + evt.room, JSON.stringify(evt.data));
             });
 
             sock.on("yourUser", evt => {
@@ -190,29 +397,137 @@
 
             sock.on("setUsers", (evt) => {
                 const newUsers = evt.data;
-                console.log("Set Users", evt);
                 Object.keys(newUsers).forEach(userKey => {
                     const newUser = newUsers[userKey];
                     if (users.hasOwnProperty(userKey)) {
                         const oldUser = users[userKey];
                         if (oldUser.name !== newUser.name) {
-                            $("pre").append("\n" + oldUser.name + " renamed to " + newUser.name + ".");
+                            appendLog(" renamed to " + newUser.name + ".", userKey);
                         }
+                        users[userKey] = newUser;
                     } else {
-                        $("pre").append("\n" + newUser.name + " joined!");
+                        users[userKey] = newUser;
+                        appendLog(" joined!", userKey);
                     }
-                    users[userKey] = newUser;
                 });
 
                 Object.keys(users).forEach(userKey => {
                     const oldUser = users[userKey];
                     if (!newUsers.hasOwnProperty(userKey)) {
-                        $("pre").append("\n" + oldUser.name + " left!");
+                        appendLog(" left!", userKey);
                         delete users[userKey];
                     }
-                })
+                });
+
+                userUpdate();
             });
 
+        };
+
+        let playerReady = false;
+
+        const onYTPlayerReady = (event) => {
+            console.log("YT READY", event);
+            playerReady = true;
+            stateCooldown = Date.now() + 1000;
+            window.setTimeout(() => {
+                videoChange(syncData.video || {}, {});
+            }, 1000);
+            window.setInterval(videoStateCheck, 5000);
+        };
+
+
+        let stateChangeTimeout = null;
+        const onYTStateChange = (event) => {
+            //console.log("YT State Change", event);
+            const rawState = player.getPlayerState();
+            const actualState = YTState2String(rawState);
+            const desiredState = getDesiredState();
+            if (Date.now() <= stateCooldown) {
+                return;
+            }
+            stateCooldown = Date.now() + 1000;
+            if (actualState !== desiredState) {
+                if (stateChangeTimeout !== null) {
+                    window.clearTimeout(stateChangeTimeout);
+                }
+                stateChangeTimeout = window.setTimeout(() => {
+                    const newRawState = player.getPlayerState();
+                    if (newRawState === rawState) {
+                        const data = JSON.parse(JSON.stringify(syncData));
+                        data.video.state = actualState;
+                        data.video.time = getGlobalTimeForVideoState(actualState);
+                        setData(data);
+                    }
+                    if (!timeWithinTolerance()) {
+                        const data = JSON.parse(JSON.stringify(syncData));
+                        data.video.state = desiredState;
+                        data.video.time = getGlobalTimeForVideoState(desiredState);
+                        setData(data);
+                    }
+                }, 500);
+                return;
+            }
+
+        };
+
+        const timeWithinTolerance = () => {
+            const actualTime = player.getCurrentTime();
+            const desiredTime = getDesiredTime();
+
+            return Math.abs(actualTime - desiredTime) < 2;
+        }
+
+        const getDesiredState = () => {
+            const vid = syncData.video;
+            return vid.state || "paused";
+        }
+
+        const getDesiredTime = () => {
+            const vid = syncData.video;
+            const actualTime = player.getCurrentTime();
+            const time = vid.time || (actualTime * 1000);
+            return (getDesiredState() === "playing" ? (Date.now() - vid.time) : vid.time) / 1000;
+        }
+
+        const getGlobalTimeForVideoState = (state) => {
+            const playTime = player.getCurrentTime();
+            const rawState = player.getPlayerState();
+            //const state = YTState2String(rawState);
+            if (state === "playing") {
+                return Date.now() - (playTime * 1000);
+            } else {
+                return playTime * 1000;
+            }
+        };
+
+        const YTState2String = (state) => {
+            switch (state) {
+                case -1:
+                case 0:
+                case 2:
+                case 5:
+                    return "paused";
+                    break;
+                case 1:
+                case 3:
+                    return "playing";
+            }
+        }
+
+        let player = null;
+
+        function onYouTubeIframeAPIReady() {
+            console.log("YT API READY");
+            player = new YT.Player('player', {
+                //height: '390',
+                //width: '640',
+                //videoId: 'M7lc1UVf-VE',
+                events: {
+                    'onReady': onYTPlayerReady,
+                    'onStateChange': onYTStateChange
+                }
+            });
         };
 
         const loaded = () => {
@@ -232,21 +547,43 @@
                 const elem = $(evt.currentTarget);
                 updateData(elem.data("key"), elem.is("input[type=checkbox]") ? elem.prop("checked") : elem.val());
             });
-        }
+            $("body").on("click", ".userLink", (evt) => {
+                console.log($(evt.currentTarget).data());
+            });
+            $("select[multiple]").on("click", evt => {
+                if ($(evt.target).is("select[multiple]")) {
+                    evt.currentTarget.selectedIndex = -1;
+                }
+            });
+
+            const tag = document.createElement('script');
+            tag.src = "https://www.youtube.com/iframe_api";
+            const firstScriptTag = document.getElementsByTagName('script')[0];
+            firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+        };
         $(document).ready(loaded);
     </script>
 </head>
 
 <body>
-    <form onsubmit="chatSend(event,this);return false;"><input type="text"><input type="submit"></form>
+    <form onsubmit="setVideo(event,this);return false;">
+        <input type="text">
+        <input type="submit">
+        <span class="dataUpdate" data-key="video.state"></span>
+    </form>
+    <div id="player"></div>
     <hr>
-    <label>text </label><input class="dataUpdate" data-key="text" type="text">
-    <br>
-    <label>check</label><input class="dataUpdate" data-key="check" type="checkbox">
-    <hr>
-    <pre>RAA</pre>
-    <!--iframe width="560" height="315" src="https://www.youtube.com/embed/H447gvtABIM" frameborder="0"
-        allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe-->
+    <div id="userListContainer">
+        <div id="userButtons">
+            <h4>Users</h4>
+        </div>
+        <select id="userList" multiple></select>
+    </div>
+    <div id="logContainer">
+        <div id="log"></div>
+        <form onsubmit="chatSend(event,this);return false;"><input type="text"><input type="submit"></form>
+    </div>
+
 </body>
 
 </html>
