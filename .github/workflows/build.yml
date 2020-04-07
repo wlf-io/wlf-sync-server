@@ -1,0 +1,27 @@
+name: Build wlf-sync
+
+on:
+    push:
+        branches:
+            - master
+        tags:
+            - "v*"
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v2
+            - name: Use Node.js 12.x
+              uses: actions/setup-node@v1
+              with:
+                node-version: 12.x
+            - name: Build
+              run: |
+                npm ci
+                npm run build
+            - name: Upload artifact
+              uses: actions/upload-artifact@v1.0.0
+              with:
+                name: build
+                path: dist

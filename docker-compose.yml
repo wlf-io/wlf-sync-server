@@ -1,0 +1,27 @@
+version: "3.7"
+
+networks:
+    web:
+        external:
+            name: shared-web
+    redis:
+        external:
+            name: shared-redis
+    
+services: 
+    wlf-sync:
+        build: .
+        restart: unless-stopped
+        environment:
+            REDIS_HOST: redis
+        ports:
+            - "8085:8080"
+        networks: 
+            - web
+            - redis
+        volumes: 
+            - "./dist/public:/home/node/app/dist/public"
+        labels:
+            - traefik.enable=true
+            - traefik.http.services.wlf-sync.loadbalancer.server.port=8080
+            - traefik.http.routers.whoami.rule=Host(`t1.wlf.test`)

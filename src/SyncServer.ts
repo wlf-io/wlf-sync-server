@@ -37,6 +37,7 @@ export default class SyncServer {
     }
 
     public run() {
+        console.log("Starting server with", this.config);
         this.listen();
     }
 
@@ -65,7 +66,7 @@ export default class SyncServer {
             const expires = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());;
             res.cookie(User.IdentCookie, req.cookies[User.IdentCookie] || uuidv4(), { expires });
             res.cookie(User.NameCookie, req.cookies[User.NameCookie] || User.UniqueName(), { expires });
-            res.sendFile(__dirname + "/public/" + (this.config.index_file || "index.html"));
+            res.sendFile(__dirname + "/public/" + (this.config.indexFile || "index.html"));
         });
         const port = this.config.port || 8080;
         this.server.listen(port, () => {

@@ -4,6 +4,9 @@ COPY ./src /app/src
 COPY ./tsconfig.json /app/tsconfig.json
 COPY ./package.json /app/package.json
 COPY ./package-lock.json /app/package-lock.json
+COPY ./run.sh /app/run.sh
+
+RUN chmod +x /app/run.sh
 
 WORKDIR /app
 
@@ -11,11 +14,13 @@ RUN npm ci
 
 RUN npm run build
 
-RUN ls /app/dist
+RUN ls /app
 
 RUN rm -rf /app/src
 
 RUN rm -rf /app/node_modules
+
+RUN npm install --only=prod
 
 ##
 ##
@@ -24,8 +29,8 @@ RUN rm -rf /app/node_modules
 
 FROM node:13.12.0-alpine3.11
 
-COPY --from=BUILD /app /app
+COPY --from=BUILD /app /home/node/app
 
-WORKDIR /app
+WORKDIR /home/node/app
 
-RUN npm install --only=prod
+CMD ["npm","run","prod"]
