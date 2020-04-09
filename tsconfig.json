@@ -17,7 +17,9 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "incremental": true,
-        "target": "ES2018"
+        "target": "ES2018",
+        "allowJs": true,
+        "noImplicitReturns": true
     },
     "include": [
         "src/**/*"

@@ -100,6 +100,7 @@ export default class Room {
             }
             this.access.addRead(user);
             this.userHooks(user);
+            user.emit("joinRoom", this.key);
             user.sendData(this._data);
             this.sendUsersToUsers();
             this.save();
@@ -119,15 +120,22 @@ export default class Room {
     private userHooks(user: User) {
         user
             .onSocket("setData", data => this.setData(data, user))
-            .onSocket("setDataPart", dataPart => this.setDataPart(dataPart, user))
+            .onSocket("removeData", keys => this.removeData(keys, user))
             .onSocket("grantUser", userRank => this.grantUser(userRank, user))
             .onSocket("setPassword", password => this.setPassword(password, user))
             .onSocket("getOneTimePass", () => this.generateOneTimePass(user))
             .onSocket("relay", data => this.relay(data, user))
             .onSocket("debug", () => this.debug(user))
+            // .onSocket("leave", () => this.leave(user))
             .onUpdate(user => this.userUpdate(user))
             .onDisconnect(user => this.userDisconnect(user));
     }
+
+    // private leave(user: User) {
+    //     if (this._users.hasOwnProperty(user.ident)) {
+    //         this._users[user.ident];
+    //     }
+    // }
 
     private debug(user: User) {
         if (this.access.canAdmin(user)) {
@@ -199,12 +207,40 @@ export default class Room {
         }, 10000);
     }
 
+    private removeData(keys: string[], user: User) {
+        keys = JSON.parse(JSON.stringify(keys));
+        if (this.access.canWrite(user) && keys instanceof Array) {
+            const current = JSON.parse(JSON.stringify(this._data));
+            for (const key of keys) {
+                if (current.hasOwnProperty(key)) {
+                    delete current[key];
+                }
+            }
+            if (this.validateData(current)) {
+                this._data = current;
+                this.sendRemovalsToUsers(keys);
+                this.save();
+                return;
+            }
+        }
+        user.sendData(this._data);
+    }
+
     private setData(data: any, user: User) {
-        if (this.access.canWrite(user) && this.validateData(data)) {
-            this._data = JSON.parse(JSON.stringify(data));
-            this.sendDataToUsers();
-            this.save();
-            return;
+        if (this.access.canWrite(user)) {
+            data = JSON.parse(JSON.stringify(data));
+            if (typeof data === "object" && data !== null && !(data instanceof Array)) {
+                const current = JSON.parse(JSON.stringify(this._data));
+                for (const key in data) {
+                    current[key] = data[key];
+                }
+                if (this.validateData(current)) {
+                    this._data = current;
+                    this.sendDataToUsers(data);
+                    this.save();
+                    return;
+                }
+            }
         }
         user.sendData(this._data);
     }
@@ -215,50 +251,14 @@ export default class Room {
         return typeof data === "object" && data !== null && (bytes <= this._maxBytes || this._maxBytes < 1);
     }
 
-    private setDataPart(dataPart: { part: string, data: any }, user: User) {
-        let { part, data } = dataPart;
-        data = JSON.parse(JSON.stringify(data));
-        if (this.access.canWrite(user) && typeof part === "string") {
-            if (this.setDataPath(part, data)) {
-                this.sendDataPartToUsers(part, data);
-                this.save();
-                return;
-            }
-        }
-        user.sendData(this._data);
-    }
-
-    private setDataPath(_path: string, data: any) {
-        const path = _path.split(".");
-        let obj = JSON.parse(JSON.stringify(this._data));
-        let i: number;
-        for (i = 0; i < path.length - 1; i++) {
-            const key = path[i];
-            if (!obj.hasOwnProperty(key) || typeof obj[key] !== "object") {
-                obj[key] = {};
-            }
-            obj = obj[path[i]];
-        }
-        const key = path[i];
-        if (!obj.hasOwnProperty(key) || typeof obj[key] !== "object") {
-            obj[key] = {};
-        }
-        obj[key] = data;
-        if (this.validateData(obj)) {
-            this._data = obj;
-            return true;
-        }
-        return false;
-    }
-
-    private sendDataPartToUsers(part: string, data: any) {
+    private sendRemovalsToUsers(keys: string[]) {
         Object.values(this._users)
-            .forEach(user => user.sendDataPart(part, data));
+            .forEach(user => user.sendRemovals(keys));
     }
 
-    private sendDataToUsers() {
+    private sendDataToUsers(data: { [k: string]: any }) {
         Object.values(this._users)
-            .forEach(user => user.sendData(this._data));
+            .forEach(user => user.sendData(data));
     }
 
     private sendUsersToUsers() {

@@ -60,8 +60,8 @@ export default class User {
         this.emit("setData", m);
     }
 
-    public sendDataPart(part: string, data: any) {
-        this.emit("setDataPart", { part, data });
+    public sendRemovals(keys: string[]) {
+        this.emit("removeData", keys);
     }
 
     public sendUsers(m: any) {

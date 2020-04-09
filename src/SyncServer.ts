@@ -62,6 +62,9 @@ export default class SyncServer {
 
     private listen() {
         this.app.use("/", express.static(path.join(__dirname, 'public')));
+        this.app.get("/wlf-sync/lib.js", (_req, res) => {
+            res.sendFile(__dirname + "/lib.js");
+        });
         this.app.get("/*", (req, res) => {
             const today = new Date();
             const expires = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());;
@@ -77,7 +80,7 @@ export default class SyncServer {
         this.socket.on('connection', (socket: socketIO.Socket) => {
             const cookies = cookie.parse(socket.handshake.headers.cookie);
             if (cookies.hasOwnProperty(User.NameCookie) && cookies.hasOwnProperty(User.IdentCookie)) {
-                socket.on("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
+                socket.once("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
             } else {
                 socket.disconnect(true);
             }
@@ -91,7 +94,7 @@ export default class SyncServer {
             this.getRoomByKey(key)
                 .then(room => {
                     if (!room.join(socket, pass)) {
-                        socket.disconnect(true);
+                        socket.once("joinRoom", (roomPass: any) => this.joinRoom(socket, roomPass));
                     }
                 });
         }
