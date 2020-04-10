@@ -44,7 +44,7 @@
             if (aKeys.length !== bKeys.length) return false;
             aKeys.sort();
             bKeys.sort();
-            if (a.join("|") !== b.join("|")) return false;
+            if (aKeys.join("|") !== bKeys.join("|")) return false;
             for (const key of aKeys) {
                 if (!typeofCompare(a[key], b[key])) return false;
             }
@@ -85,13 +85,10 @@
     const HOOK_JOIN_ROOM = "joinRoom";
     const HOOK_PASSWORD_FAILED = "passwordFailed";
 
-    function WlfSync(address) {
-        if (typeof address === "string") {
-            this.address = address;
-        }
+    function WlfSync() {
         const data = {};
         const users = {};
-        const user = null;
+        let user = {};
         const _hooks = {};
 
         const triggerHook = (hook, key, data) => {
@@ -104,13 +101,13 @@
             }
             const hookSet = _hooks[hook] || {};
             const hooks = hookSet[key] || [];
-            hooks.foreach(h => h(...data));
+            hooks.forEach(h => h(...data));
             if (key !== "all") {
                 triggerHook(hook, "all", data);
             }
         }
 
-        const roomName = null;
+        let roomName = null;
 
         this.getData = (key) => (typeof key === "string") ? data[key] : { ...data };
         this.getUsers = (key) => (typeof key === "string") ? users[key] : { ...users };
@@ -143,6 +140,9 @@
             const currentUsers = cleanObj(users);
             for (const key in newUsers) {
                 const newUser = { ...newUsers[key] };
+                if (key === (user.ident || null)) {
+                    socketSetYourUser({ room: evt.room, data: { ...newUser } });
+                }
                 if (currentUsers.hasOwnProperty(key)) {
                     const currentUser = { ...currentUsers[key] };
                     if (!simpleObjCompare(currentUser, newUser)) {
@@ -151,22 +151,25 @@
                 } else {
                     triggerHook(HOOK_NEW_USER, [key, newUser]);
                 }
+                users[key] = _newUsers[key];
             }
 
             for (const key in currentUsers) {
                 if (!newUsers.hasOwnProperty(key)) {
                     const currentUser = { ...currentUsers[key] };
                     triggerHook(HOOK_USER_LEFT, key, [key, currentUser]);
+                    delete users[key];
                 }
             }
 
-            triggerHook(HOOK_SET_USERS, { ...newUsers }, currentUsers);
-            users = _newUsers;
+            triggerHook(HOOK_SET_USERS, [{ ...newUsers }, currentUsers]);
         };
 
         const socketSetYourUser = evt => {
             const { room, data: newUser } = evt;
-            triggerHook(HOOK_YOUR_USER, [newUser.ident, cleanObj(newUser), user]);
+            if (!typeofCompare(newUser, user)) {
+                triggerHook(HOOK_YOUR_USER, [newUser.ident, cleanObj(newUser), user]);
+            }
             user = newUser;
         };
 
@@ -189,7 +192,7 @@
             if (event.data === event.room) {
                 roomName = event.data;
             }
-            triggerHook(HOOK_JOIN_ROOM, room, [room]);
+            triggerHook(HOOK_JOIN_ROOM, roomName, [roomName]);
             joinRoomPromise.resolve(roomName);
         }
 
@@ -214,10 +217,10 @@
         let connectPromise = null;
         let joinRoomPromise = null;
 
-        this.connect = () => {
+        this.connect = (address) => {
             return new Promise((res, rej) => {
                 connectPromise = { resolve: res, reject: rej };
-                socket = io(this.address);
+                socket = io(address);
                 hookSocket();
             });
         };
@@ -226,18 +229,23 @@
             if (typeof room !== "string") {
                 throw { error: "room must be string" };
             }
-            if (typeof room !== "string" && room !== null) {
-                throw { error: "pass must be a string or null" };
+            if (typeof room !== "string" && room !== null && typeof room !== "undefined") {
+                throw { error: "pass must be a string, null, or undefined" };
             }
             return new Promise((res, rej) => {
                 joinRoomPromise = { resolve: res, reject: rej };
-                socketEmit(HOOK_JOIN_ROOM, { room: room, pass: pass });
+                socketEmit(HOOK_JOIN_ROOM, { room, pass });
             });
         };
 
         this.setValue = (key, value) => this.setData({ [key]: value });
 
         this.setData = data => {
+            const canWrite = user.write || false;
+            if (!canWrite) {
+                console.log("User without permission attempting to write");
+                return;
+            }
             data = cleanObj(data);
             checkSimpleObject(data, "data");
             socketEmit(HOOK_SET_DATA, data);
@@ -247,13 +255,37 @@
             user = cleanObj(user);
             checkSimpleObject(user, "user");
             socketEmit(HOOK_YOUR_USER, user);
-        }
+        };
 
         this.relay = data => {
             data = cleanObj(data);
             checkSimpleObject(data)
-        }
+        };
 
+        this.grantUser = (ident, rank) => {
+            const admin = user.admin || false;
+            const owner = user.owner || false;
+            if (!admin && !owner) {
+                console.log("User without permission attempting to grant rank");
+                return;
+            }
+            if (typeof rank !== "string" || typeof ident !== "string") {
+                socketEmit("grantUser", { ident, rank });
+            }
+        };
+
+
+        this.setPassword = (password) => {
+            const admin = user.admin || false;
+            const owner = user.owner || false;
+            if (!admin && !owner) {
+                console.log("User without permission attempting to set password");
+                return;
+            }
+            if (typeof rank !== "string" && password !== null) {
+                socketEmit("setPassword", password);
+            }
+        };
 
 
         this.on = (event, key, cb) => {
@@ -269,8 +301,6 @@
     }
 
     WlfSync.prototype = {
-        address: "/",
-        _eventHooks: {},
         onSetData: (key, cb) => this.on(HOOK_SET_DATA, key, cb),
         onRemoveData: (key, cb) => this.on(HOOK_REMOVE_DATA, key, cb),
         onRelay: cb => this.on(HOOK_RELAY, cb),
@@ -288,6 +318,34 @@
     WlfSync.HOOK_REMOVE_DATA = HOOK_REMOVE_DATA;
     WlfSync.HOOK_SET_DATA = HOOK_SET_DATA;
     WlfSync.HOOK_RELAY = HOOK_RELAY;
+    WlfSync.HOOK_SET_USERS = HOOK_SET_USERS;
+    WlfSync.HOOK_USER_CHANGED = HOOK_USER_CHANGED;
+    WlfSync.HOOK_USER_LEFT = HOOK_USER_LEFT;
+    WlfSync.HOOK_USER_JOIN = HOOK_NEW_USER;
+    WlfSync.HOOK_YOUR_USER = HOOK_YOUR_USER;
+    WlfSync.HOOK_JOIN_ROOM = HOOK_JOIN_ROOM;
+
+    WlfSync.Factory = (...args) => new WlfSync(...args);
+
+    WlfSync.CreateWithRoom = (address, room, pass, createCB) => {
+        return new Promise((res, rej) => {
+            const sync = new WlfSync();
+            if (typeof createCB === "function") {
+                createCB(sync);
+            }
+            sync
+                .connect(address)
+                .then(() => {
+                    sync.joinRoom(room, pass)
+                        .then(() => {
+                            res(sync);
+                        })
+                        .catch(rej);
+                })
+                .catch(rej);
+        });
+    }
+
 
     const register = (env, error) => {
         if (!env.hasOwnProperty("io")) {

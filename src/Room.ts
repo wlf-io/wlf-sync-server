@@ -88,7 +88,7 @@ export default class Room {
         return this.passwordCheck(password);
     }
 
-    public join(socket: SocketIO.Socket, password: string) {
+    public join(socket: SocketIO.Socket, password: string): boolean {
         const user = new User(socket, this.key);
         this.access.attemptClaim(user.ident);
         this.removeOldUser(user);
@@ -100,9 +100,10 @@ export default class Room {
             }
             this.access.addRead(user);
             this.userHooks(user);
-            user.emit("joinRoom", this.key);
             user.sendData(this._data);
+            user.sendOwnUser(this.getUserData(user));
             this.sendUsersToUsers();
+            user.emit("joinRoom", this.key);
             this.save();
             return true;
         }
@@ -179,6 +180,7 @@ export default class Room {
                             this.access.addRead(userGrant);
                             break;
                     }
+                    this.sendUsersToUsers();
                     this.save();
                 }
             }

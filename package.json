@@ -10,7 +10,8 @@
     "start": "env REDIS_HOST=127.0.0.120 node . --enable-source-map",
     "prod": "node .",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "docker": "docker build . --tag wlf-sync-local"
+    "docker": "docker build . --tag wlf-sync-local",
+    "watch": "tsc -w"
   },
   "repository": {
     "type": "git",

@@ -2,14 +2,27 @@
 
 <head>
     <title>Socket test</title>
-    <script src="/wlf-sync/lib.js"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/wlf-sync/lib.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-cookie@rc/dist/js.cookie.min.js"></script>
     <script>
+        const bindAllSyncEvents = (sync) => {
+            for (const key in WlfSync) {
+                if (key.startsWith("HOOK_")) {
+                    sync.on(WlfSync[key], "all", (...args) => console.log(key, args));
+                }
+            }
+        };
+
+
         $(document).ready(() => {
-            const sync = new WlfSync();
-            sync.run();
+            WlfSync
+                .CreateWithRoom("", "test", "test", sync => bindAllSyncEvents(sync))
+                .then(sync => {
+                    sync.setValue("A", 10);
+                })
+                .catch(err => console.error("Failed to create sync client", err));
         });
     </script>
 </head>

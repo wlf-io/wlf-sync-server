@@ -7,15 +7,11 @@ COPY ./package-lock.json /app/package-lock.json
 
 WORKDIR /app
 
-RUN npm ci
+RUN npm ci \
+    npm run build
 
-RUN npm run build
-
-RUN ls /app
-
-RUN rm -rf /app/src
-
-RUN rm -rf /app/node_modules
+RUN rm -rf /app/src \
+    rm -rf /app/node_modules
 
 RUN npm install --only=prod
 
