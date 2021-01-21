@@ -28,7 +28,7 @@
     "express": "^4.17.1",
     "ioredis": "^4.16.1",
     "redis": "^3.0.2",
-    "socket.io": "^2.3.0",
+    "socket.io": "^2.4.0",
     "unique-names-generator": "^4.2.0",
     "uuid": "^7.0.3"
   },
